@@ -1,0 +1,48 @@
+name: News alert
+
+on:
+  schedule:
+    - cron: "23 * * * *"   # every hour at :23 (UTC); off the top of the hour to avoid delays
+  workflow_dispatch:
+    inputs:
+      test_resend:
+        description: "Resend the newest article as a delivery test"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: news-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install feedparser requests curl_cffi
+
+      - name: Check feed and send new articles
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TEST_RESEND: ${{ inputs.test_resend && '1' || '0' }}
+        run: python news_alert_bot.py
+
+      - name: Save record of seen articles
+        if: always()
+        run: |
+          git config user.name "news-bot"
+          git config user.email "news-bot@users.noreply.github.com"
+          git add seen_articles.json || true
+          git diff --staged --quiet || (git commit -m "Update seen articles" && git push)
